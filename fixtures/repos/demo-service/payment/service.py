@@ -6,7 +6,13 @@ class Gateway:
 
 gateway = Gateway()
 
+def validate_amount(amount):
+    if amount <= 0:
+        raise ValueError('Amount must be positive')
+    if amount > 10000:
+        raise ValueError('Amount exceeds maximum')
+    return True
+
 def process_payment(amount, card):
-    if amount > 1000:
-        raise ValueError('Amount too high')
+    validate_amount(amount)
     return gateway.charge(amount, card)
