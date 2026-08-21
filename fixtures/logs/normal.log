@@ -1,0 +1,12 @@
+2026-08-21T14:00:01Z INFO payment-service Starting up
+2026-08-21T14:00:05Z INFO payment-service Health check OK
+2026-08-21T14:01:00Z INFO payment-service Processing order #1001
+2026-08-21T14:01:15Z INFO payment-service Order #1001 completed
+2026-08-21T14:02:00Z INFO payment-service Processing order #1002
+2026-08-21T14:02:30Z WARN payment-service Slow query detected: 2.3s
+2026-08-21T14:03:00Z INFO payment-service Processing order #1003
+2026-08-21T14:03:45Z INFO payment-service Order #1003 completed
+2026-08-21T14:04:00Z INFO payment-service Processing order #1004
+2026-08-21T14:04:10Z INFO payment-service Order #1004 completed
+2026-08-21T14:05:00Z INFO payment-service Processing order #1005
+2026-08-21T14:05:20Z INFO payment-service Order #1005 completed

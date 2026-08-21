@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+/.backends/
+/dist/
+/build/
+/*.egg
+
+# Environment
+.env
+.local/
+
+# Data
+data/*.db
+data/*.sqlite
+
+# IDE
+.vscode/
+.idea/
