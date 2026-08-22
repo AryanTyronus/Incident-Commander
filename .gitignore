@@ -19,4 +19,4 @@ data/*.sqlite
 
 # IDE
 .vscode/
-.idea/
+.idea/.DS_Store
