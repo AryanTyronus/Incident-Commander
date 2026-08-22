@@ -4,6 +4,11 @@ from httpx import ASGITransport, AsyncClient
 
 from backend.app.main import app
 
+# These tests drive the real app, and the demo endpoint writes through
+# ``settings.DATABASE_PATH``. Requesting ``tmp_db`` points that at a throwaway
+# database - otherwise every run appends demo incidents to the project's own
+# data/incidents.db (which is what used to create a stray backend/data copy).
+
 
 async def test_health() -> None:
     transport = ASGITransport(app=app)
@@ -13,7 +18,7 @@ async def test_health() -> None:
     assert resp.json()["status"] == "ok"
 
 
-async def test_ready() -> None:
+async def test_ready(tmp_db: str) -> None:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/ready")
@@ -24,7 +29,7 @@ async def test_ready() -> None:
     assert "sqlite" in data["checks"]
 
 
-async def test_create_demo_incident() -> None:
+async def test_create_demo_incident(tmp_db: str) -> None:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post("/api/demo/incidents")
@@ -35,7 +40,7 @@ async def test_create_demo_incident() -> None:
     assert data["service"] == "payment-service"
 
 
-async def test_get_events() -> None:
+async def test_get_events(tmp_db: str) -> None:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # Create demo incident first
@@ -50,7 +55,7 @@ async def test_get_events() -> None:
     assert data["total"] >= 0
 
 
-async def test_get_evidence() -> None:
+async def test_get_evidence(tmp_db: str) -> None:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         demo = (await client.post("/api/demo/incidents")).json()

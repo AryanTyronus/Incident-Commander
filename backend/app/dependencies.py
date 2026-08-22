@@ -87,33 +87,26 @@ def get_commander(
     investigation_repo: Annotated[InvestigationRepository, Depends(get_investigation_repo)],
 ):
     """FastAPI dependency that provides an IncidentCommander with Phase 3 agents."""
-    from backend.app.agents.commander import IncidentCommander
-    from backend.app.agents.registry import AgentRegistry
-    from backend.app.orchestration.execution import AgentExecutor
+    from backend.app.services.investigation_runner import build_commander
 
-    evidence_repo = EvidenceRepository(settings.DATABASE_PATH)
-    finding_repo = FindingRepository(settings.DATABASE_PATH)
-
-    executor = AgentExecutor(agent_run_repo)
-    registry = AgentRegistry()
-
-    # Register Phase 3 agents
-    from backend.app.agents.git_forensics import GitForensicsAgent
-    from backend.app.agents.log_triage import LogTriageAgent
-    from backend.app.agents.runbook import RunbookAgent
-
-    registry.register(LogTriageAgent(evidence_repo, finding_repo))
-    registry.register(GitForensicsAgent(evidence_repo, finding_repo))
-    registry.register(RunbookAgent(evidence_repo, finding_repo))
-
-    return IncidentCommander(
-        llm=llm,
+    return build_commander(
         repo=repo,
+        db_path=settings.DATABASE_PATH,
+        llm=llm,
         agent_run_repo=agent_run_repo,
         investigation_repo=investigation_repo,
-        executor=executor,
-        registry=registry,
     )
+
+
+def get_investigation_runner():
+    """FastAPI dependency that provides the background InvestigationRunner.
+
+    Kept as a dependency rather than a module-level singleton so tests can
+    substitute a runner through ``app.dependency_overrides``.
+    """
+    from backend.app.services.investigation_runner import InvestigationRunner
+
+    return InvestigationRunner(db_path=settings.DATABASE_PATH)
 
 
 # Type aliases for route signatures
@@ -124,6 +117,7 @@ InvestigationRepoDep = Annotated[InvestigationRepository, Depends(get_investigat
 EvidenceRepoDep = Annotated[EvidenceRepository, Depends(get_evidence_repo)]
 FindingRepoDep = Annotated[FindingRepository, Depends(get_finding_repo)]
 CommanderDep = Annotated[object, Depends(get_commander)]
+InvestigationRunnerDep = Annotated[object, Depends(get_investigation_runner)]
 
 
 # Phase 4 dependencies

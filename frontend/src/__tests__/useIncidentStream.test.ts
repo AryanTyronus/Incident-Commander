@@ -35,6 +35,14 @@ describe('useIncidentStream', () => {
     expect(MockWebSocket.instances[0].url).toContain('inc-1');
   });
 
+  it('connects to the backend stream path proxied by the dev server', () => {
+    // Must stay under /api - that is the prefix vite.config.ts upgrades to a
+    // WebSocket (see vite.config.test.ts).
+    renderHook(() => useIncidentStream('inc-1'));
+    const { pathname } = new URL(MockWebSocket.instances[0].url);
+    expect(pathname).toBe('/api/incidents/inc-1/stream');
+  });
+
   it('sets connected to true on open', () => {
     const { result } = renderHook(() => useIncidentStream('inc-1'));
     expect(result.current.connected).toBe(false);

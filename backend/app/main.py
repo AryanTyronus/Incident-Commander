@@ -42,6 +42,7 @@ app.add_middleware(
 )
 
 app.include_router(incidents_api.router)
+app.include_router(incidents_api.remediation_router)
 app.include_router(webhooks_api.router)
 app.include_router(health_router)
 app.include_router(stream_router)

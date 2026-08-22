@@ -12,8 +12,11 @@ from backend.app.agents.prompts import (
     INVESTIGATION_PLAN_USER_PROMPT,
 )
 from backend.app.agents.registry import AgentRegistry
+from backend.app.events.model import EventType
+from backend.app.events.publisher import event_publisher
 from backend.app.llm.interface import LLMProvider, LLMProviderError
 from backend.app.models.agent_schemas import (
+    AgentResult,
     AgentRun,
     AgentRunStatus,
     InvestigationPlan,
@@ -137,8 +140,13 @@ class IncidentCommander:
             # Aggregate results
             state.status = InvestigationStage.AGGREGATING
             state.current_stage = InvestigationStage.AGGREGATING
+            # ``AgentRun.output`` holds the JSON-serialisable dict the executor
+            # stored (``AgentResult.model_dump()``), while ``findings`` is typed
+            # ``list[AgentResult]``. Rebuild the models rather than dropping the
+            # dicts in: appending to a list field skips validation, so the
+            # mismatch would only surface as a serializer warning on persist.
             state.findings = [
-                run.output
+                AgentResult.model_validate(run.output)
                 for run in state.completed_runs
                 if run.output is not None
             ]
@@ -283,6 +291,12 @@ class IncidentCommander:
                 extra=task.input,
             )
 
+            self._record_event(
+                plan.incident_id,
+                "AGENT_STARTED",
+                {"agent_name": task.agent_name, "purpose": task.purpose},
+            )
+
             run = await self._executor.execute(
                 incident_id=plan.incident_id,
                 agent_name=task.agent_name,
@@ -337,7 +351,7 @@ class IncidentCommander:
         event_type: str,
         payload: dict[str, Any],
     ) -> None:
-        """Record an investigation event in the audit trail."""
+        """Record an investigation event in the audit trail and stream it."""
         self._repo.record_event(
             id=uuid4(),
             incident_id=incident_id,
@@ -347,6 +361,35 @@ class IncidentCommander:
             payload=payload,
             created_at=datetime.now(UTC),
         )
+        self._publish_event(incident_id, event_type, payload)
+
+    @staticmethod
+    def _publish_event(
+        incident_id: UUID,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """Fan an audit event out to live WebSocket subscribers.
+
+        SQLite is the source of truth; streaming is best-effort, so neither an
+        unrecognised event type nor a subscriber error may abort the
+        investigation that produced it.
+        """
+        try:
+            streamed_type = EventType(event_type)
+        except ValueError:
+            logger.debug("Event %s is audit-only; not streamed", event_type)
+            return
+
+        try:
+            event_publisher.publish(
+                incident_id=incident_id,
+                event_type=streamed_type,
+                agent_name=payload.get("agent_name"),
+                payload=payload,
+            )
+        except Exception as e:
+            logger.warning("Failed to stream event %s: %s", event_type, e)
 
     def _persist_state(self, incident_id: UUID, state: InvestigationState) -> None:
         """Persist investigation state to SQLite."""

@@ -82,7 +82,7 @@ class TestOllamaProviderErrors:
     def test_init_defaults(self) -> None:
         provider = OllamaProvider()
         assert provider._base_url == "http://localhost:11434"
-        assert provider._model == "qwen3:8b"
+        assert provider._model == "qwen2.5-coder:7b"
         assert provider._timeout == 60
 
     def test_init_custom(self) -> None:

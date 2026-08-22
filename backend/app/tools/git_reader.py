@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 from dataclasses import dataclass, field
@@ -59,6 +60,11 @@ class GitReader:
 
     Uses the git CLI to extract structured information.
     Does NOT allow arbitrary command execution.
+
+    Every method that shells out to git has an ``*_async`` counterpart that runs
+    the identical code in a worker thread. Async callers must use those: a
+    ``git log`` over a large repository blocks ``subprocess.run`` for seconds,
+    which would stall the event loop and every concurrent request with it.
     """
 
     def __init__(
@@ -153,6 +159,18 @@ class GitReader:
 
         return commits
 
+    async def get_recent_commits_async(
+        self,
+        since: datetime | None = None,
+        max_count: int | None = None,
+    ) -> list[CommitInfo]:
+        """Off-loop variant of :meth:`get_recent_commits`.
+
+        One ``to_thread`` hop covers the whole method, including the per-commit
+        ``git diff-tree`` calls, rather than one hop per subprocess.
+        """
+        return await asyncio.to_thread(self.get_recent_commits, since, max_count)
+
     def get_commit(self, commit_hash: str) -> CommitInfo | None:
         """Get a specific commit."""
         format_str = "%H|%h|%an|%ae|%aI|%s"
@@ -188,6 +206,10 @@ class GitReader:
             message=message.strip(),
             files_changed=files,
         )
+
+    async def get_commit_async(self, commit_hash: str) -> CommitInfo | None:
+        """Off-loop variant of :meth:`get_commit`."""
+        return await asyncio.to_thread(self.get_commit, commit_hash)
 
     def get_commit_diff(self, commit_hash: str) -> CommitDiff | None:
         """Get the diff for a specific commit."""
@@ -276,6 +298,10 @@ class GitReader:
             files_changed=files_changed,
         )
 
+    async def get_commit_diff_async(self, commit_hash: str) -> CommitDiff | None:
+        """Off-loop variant of :meth:`get_commit_diff`."""
+        return await asyncio.to_thread(self.get_commit_diff, commit_hash)
+
     def find_line_change(
         self, file_path: str, line_number: int, lookback_commits: int = 10
     ) -> list[LineChange]:
@@ -318,6 +344,14 @@ class GitReader:
                 )
 
         return changes
+
+    async def find_line_change_async(
+        self, file_path: str, line_number: int, lookback_commits: int = 10
+    ) -> list[LineChange]:
+        """Off-loop variant of :meth:`find_line_change`."""
+        return await asyncio.to_thread(
+            self.find_line_change, file_path, line_number, lookback_commits
+        )
 
     def _get_files_changed(self, commit_hash: str) -> list[str]:
         """Get list of files changed in a commit."""

@@ -1,6 +1,6 @@
 # Demo Service
 
-A sample payment processing service for testing incident commander.
+A simple payment processing service.
 
 ## Features
 - Payment processing

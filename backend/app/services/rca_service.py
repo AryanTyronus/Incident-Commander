@@ -67,12 +67,25 @@ class RCAService:
     ) -> dict[str, Any]:
         """Perform full RCA analysis for an incident.
 
-        Returns a dict with rca, remediation_proposals, and approval.
+        Returns a dict with rca, remediation_proposals, and approvals.
+
+        Analysis is idempotent. An incident carries at most one RCA
+        (``rca_reports.incident_id`` is UNIQUE), so once one exists this returns
+        the persisted analysis instead of synthesizing a second one. Repeating
+        the synthesis would mint a fresh proposal set and strand the approval
+        decisions an engineer has already recorded against the current one.
         """
         # Load incident
         incident = self._incident_repo.get_incident(incident_id)
         if incident is None:
             raise ValueError(f"Incident not found: {incident_id}")
+
+        if self._rca_repo.get_by_incident_id(incident_id) is not None:
+            logger.info(
+                "Incident %s is already analyzed; returning the stored analysis",
+                incident_id,
+            )
+            return self._stored_analysis(incident_id)
 
         # Load findings and evidence
         findings = self._finding_repo.list_for_incident(incident_id)
@@ -101,25 +114,17 @@ class RCAService:
             events=event_dicts,
         )
 
-        # Persist RCA
-        report_json = rca.model_dump_json()
+        # Persist RCA. The guard above means no report exists for this incident
+        # yet, so this is always an insert - and the proposals below can safely
+        # reference ``rca.id`` through remediation_proposals.rca_id.
         now = datetime.now(UTC)
-
-        existing = self._rca_repo.get_by_incident_id(incident_id)
-        if existing is None:
-            self._rca_repo.create_rca(
-                id=rca.id,
-                incident_id=incident_id,
-                report_json=report_json,
-                created_at=now,
-                updated_at=now,
-            )
-        else:
-            self._rca_repo.update_rca(
-                rca_id=existing["id"],
-                report_json=report_json,
-                updated_at=now,
-            )
+        self._rca_repo.create_rca(
+            id=rca.id,
+            incident_id=incident_id,
+            report_json=rca.model_dump_json(),
+            created_at=now,
+            updated_at=now,
+        )
 
         # Generate remediation proposals
         proposals = self._remediation_planner.generate_proposals(
@@ -162,6 +167,26 @@ class RCAService:
         return {
             "rca": rca,
             "remediation_proposals": persisted_proposals,
+            "approvals": approvals,
+        }
+
+    def _stored_analysis(self, incident_id: UUID) -> dict[str, Any]:
+        """Return the analysis already persisted for an incident.
+
+        Same shape and types as a first-run ``analyze_incident``, carrying the
+        proposals' and approvals' current state - so a repeated analyze shows
+        any approve/reject decision already made rather than resetting it.
+        """
+        proposals = self.get_proposals(incident_id)
+        approvals = []
+        for proposal in proposals:
+            approval = self._approval_service.get_by_remediation_id(proposal.id)
+            if approval is not None:
+                approvals.append(approval)
+
+        return {
+            "rca": self.get_rca(incident_id),
+            "remediation_proposals": proposals,
             "approvals": approvals,
         }
 

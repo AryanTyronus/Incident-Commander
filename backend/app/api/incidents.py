@@ -1,20 +1,21 @@
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
 from backend.app.dependencies import (
     ApprovalServiceDep,
-    CommanderDep,
     EvidenceRepoDep,
     FindingRepoDep,
     InvestigationRepoDep,
+    InvestigationRunnerDep,
     RCAServiceDep,
     RemediationRepoDep,
     ServiceDep,
 )
-from backend.app.models.agent_schemas import InvestigationResponse
+from backend.app.models.agent_schemas import InvestigationResponse, InvestigationStage
 from backend.app.models.schemas import (
     ErrorResponse,
     IncidentCreate,
@@ -26,8 +27,16 @@ from backend.app.services.incident_service import (
     IncidentNotFoundError,
     InvalidTransitionError,
 )
+from backend.app.services.investigation_runner import ACTIVE_STAGES
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
+
+# Approval decisions address a remediation proposal by its own id, not through
+# an incident, so they live on their own prefix. Declaring them on `router`
+# would nest them under /api/incidents, which is not the path clients call.
+remediation_router = APIRouter(prefix="/api/remediations", tags=["remediation"])
 
 
 @router.post("", response_model=IncidentResponse, status_code=201)
@@ -102,6 +111,7 @@ async def update_incident_status(
 @router.post(
     "/{incident_id}/investigate",
     response_model=InvestigationResponse,
+    status_code=202,
     responses={
         404: {"model": ErrorResponse},
         409: {"model": ErrorResponse},
@@ -109,29 +119,37 @@ async def update_incident_status(
 )
 async def start_investigation(
     incident_id: UUID,
-    commander: CommanderDep,
+    background_tasks: BackgroundTasks,
+    svc: ServiceDep,
+    investigation_repo: InvestigationRepoDep,
+    runner: InvestigationRunnerDep,
 ) -> dict:
-    """Start an automated investigation for an incident."""
-    from backend.app.agents.commander import (
-        InvestigationAlreadyRunningError,
-        PlanningError,
-        UnknownAgentError,
-    )
-    from backend.app.services.incident_service import IncidentNotFoundError
+    """Accept an investigation request and run it in the background.
 
+    An investigation is minutes of LLM planning and agent work, so the request
+    only validates and schedules it, then answers 202. Progress and the terminal
+    outcome are streamed over ``/api/incidents/{incident_id}/stream``; poll
+    ``GET /api/incidents/{incident_id}/investigation`` for the persisted state.
+    """
     try:
-        state = await commander.investigate(incident_id)
-        return {
-            "incident_id": str(incident_id),
-            "investigation_status": state.status.value,
-            "message": f"Investigation {state.status.value.lower()}",
-        }
+        svc.get_incident(incident_id)
     except IncidentNotFoundError:
         raise HTTPException(status_code=404, detail="Incident not found")
-    except InvestigationAlreadyRunningError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except (PlanningError, UnknownAgentError) as e:
-        raise HTTPException(status_code=500, detail=str(e))
+
+    existing = investigation_repo.get_by_incident_id(incident_id)
+    if existing is not None and existing["stage"] in ACTIVE_STAGES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Investigation already running for {incident_id}",
+        )
+
+    background_tasks.add_task(runner.run, incident_id)
+
+    return {
+        "incident_id": str(incident_id),
+        "investigation_status": InvestigationStage.PLANNING.value,
+        "message": "Investigation accepted and running in the background",
+    }
 
 
 @router.get(
@@ -245,6 +263,9 @@ async def analyze_incident(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        # The catch-all keeps the JSON error contract, but log the traceback:
+        # a bare "Analysis failed: <msg>" is not enough to diagnose from.
+        logger.exception("Analysis failed for incident %s", incident_id)
         raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
 
     rca = result["rca"]
@@ -375,8 +396,8 @@ async def get_remediation(
     }
 
 
-@router.post(
-    "/remediations/{remediation_id}/approve",
+@remediation_router.post(
+    "/{remediation_id}/approve",
     responses={
         404: {"model": ErrorResponse},
         409: {"model": ErrorResponse},
@@ -421,8 +442,8 @@ async def approve_remediation(
         raise HTTPException(status_code=409, detail=str(e))
 
 
-@router.post(
-    "/remediations/{remediation_id}/reject",
+@remediation_router.post(
+    "/{remediation_id}/reject",
     responses={
         404: {"model": ErrorResponse},
         409: {"model": ErrorResponse},

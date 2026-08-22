@@ -58,7 +58,7 @@ class GitForensicsAgent:
                 )
 
         try:
-            recent_commits = self._git_reader.get_recent_commits()
+            recent_commits = await self._git_reader.get_recent_commits_async()
         except Exception as e:
             return AgentResult(
                 agent_name=self.name,
@@ -91,7 +91,7 @@ class GitForensicsAgent:
             evidence_ids.append(commit_evidence["id"])
 
             # Get diff for this commit
-            diff = self._git_reader.get_commit_diff(commit.hash)
+            diff = await self._git_reader.get_commit_diff_async(commit.hash)
             if diff and diff.hunks:
                 diff_evidence = self._create_diff_evidence(
                     incident_id, commit, diff, repo_path

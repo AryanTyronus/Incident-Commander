@@ -6,12 +6,11 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      // The incident event stream is a WebSocket under this same prefix
+      // (/api/incidents/{id}/stream), so the proxy must forward upgrades too.
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-      },
-      '/ws': {
-        target: 'ws://localhost:8000',
         ws: true,
       },
       '/health': {
