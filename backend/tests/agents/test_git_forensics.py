@@ -14,8 +14,11 @@ from backend.app.repositories import (
     FindingRepository,
     IncidentRepository,
 )
+from backend.app.tools.git_reader import GitReader
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent.parent / "fixtures"
+# Fixture commits are timestamped in 2026-08-21; keep agent tests independent of today.
+FIXTURE_GIT_LOOKBACK_HOURS = 24 * 365 * 10
 
 
 def _create_test_incident(repo: IncidentRepository, incident_id: uuid4) -> dict:
@@ -65,11 +68,18 @@ class TestGitForensicsAgent:
             extra=extra_dict,
         )
 
+    def _make_agent(self, repo_path: str) -> GitForensicsAgent:
+        return GitForensicsAgent(
+            self.evidence_repo,
+            self.finding_repo,
+            GitReader(repo_path, lookback_hours=FIXTURE_GIT_LOOKBACK_HOURS),
+        )
+
     async def test_analyze_recent_commits(self) -> None:
-        agent = GitForensicsAgent(self.evidence_repo, self.finding_repo)
+        repo_path = str(FIXTURES_DIR / "repos" / "demo-service")
+        agent = self._make_agent(repo_path)
         incident_id = uuid4()
         _create_test_incident(self.incident_repo, incident_id)
-        repo_path = str(FIXTURES_DIR / "repos" / "demo-service")
         context = self._make_context(incident_id, repo_path)
 
         result = await agent.run(context)
@@ -80,10 +90,10 @@ class TestGitForensicsAgent:
         assert len(result.findings) > 0
 
     async def test_identify_candidate_change(self) -> None:
-        agent = GitForensicsAgent(self.evidence_repo, self.finding_repo)
+        repo_path = str(FIXTURES_DIR / "repos" / "demo-service")
+        agent = self._make_agent(repo_path)
         incident_id = uuid4()
         _create_test_incident(self.incident_repo, incident_id)
-        repo_path = str(FIXTURES_DIR / "repos" / "demo-service")
         context = self._make_context(
             incident_id, repo_path, service="payment"
         )
@@ -93,10 +103,10 @@ class TestGitForensicsAgent:
         assert result.metadata.get("candidate_commits", 0) > 0
 
     async def test_commit_evidence_persisted(self) -> None:
-        agent = GitForensicsAgent(self.evidence_repo, self.finding_repo)
+        repo_path = str(FIXTURES_DIR / "repos" / "demo-service")
+        agent = self._make_agent(repo_path)
         incident_id = uuid4()
         _create_test_incident(self.incident_repo, incident_id)
-        repo_path = str(FIXTURES_DIR / "repos" / "demo-service")
         context = self._make_context(incident_id, repo_path)
 
         await agent.run(context)
@@ -125,10 +135,10 @@ class TestGitForensicsAgent:
         assert result.confidence == 0.0
 
     async def test_stack_trace_correlation(self) -> None:
-        agent = GitForensicsAgent(self.evidence_repo, self.finding_repo)
+        repo_path = str(FIXTURES_DIR / "repos" / "demo-service")
+        agent = self._make_agent(repo_path)
         incident_id = uuid4()
         _create_test_incident(self.incident_repo, incident_id)
-        repo_path = str(FIXTURES_DIR / "repos" / "demo-service")
         stack_trace = 'File "/app/payment/service.py", line 10'
         context = self._make_context(
             incident_id, repo_path, stack_trace=stack_trace

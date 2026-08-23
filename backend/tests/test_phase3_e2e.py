@@ -18,9 +18,12 @@ from backend.app.repositories import (
 )
 from backend.app.retrieval.chroma import ChromaRetrieval
 from backend.app.retrieval.embeddings import FakeEmbeddingProvider
+from backend.app.tools.git_reader import GitReader
 from backend.app.tools.runbook_search import RunbookSearch
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "fixtures"
+# Fixture commits are timestamped in 2026-08-21; keep the E2E test independent of today.
+FIXTURE_GIT_LOOKBACK_HOURS = 24 * 365 * 10
 
 
 def _create_test_incident(repo: IncidentRepository, incident_id: uuid4) -> dict:
@@ -92,13 +95,18 @@ class TestPhase3EndToEnd:
         log_result = await log_agent.run(log_context)
 
         # --- Git Forensics Agent ---
-        git_agent = GitForensicsAgent(self.evidence_repo, self.finding_repo)
+        repo_path = FIXTURES_DIR / "repos" / "demo-service"
+        git_agent = GitForensicsAgent(
+            self.evidence_repo,
+            self.finding_repo,
+            GitReader(repo_path, lookback_hours=FIXTURE_GIT_LOOKBACK_HOURS),
+        )
         git_context = InvestigationContext(
             incident_id=incident_id,
             incident={},
             state=state,
             extra={
-                "repo_path": str(FIXTURES_DIR / "repos" / "demo-service"),
+                "repo_path": str(repo_path),
                 "stack_trace": 'File "/app/payment/service.py", line 10',
                 "service": "payment",
             },

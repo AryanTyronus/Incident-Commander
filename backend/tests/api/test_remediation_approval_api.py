@@ -115,15 +115,17 @@ class TestRoutesMatchTheFrontend:
     """The registered paths must be exactly the ones the client posts to."""
 
     def test_decision_routes_are_registered_at_the_api_remediations_prefix(self) -> None:
-        paths = {
-            (path, method)
-            for route in app.routes
-            for path in [getattr(route, "path", "")]
-            for method in getattr(route, "methods", set()) or set()
-        }
+        # Assert against the OpenAPI path map, not ``app.routes``: it is the
+        # app's published route contract, so it reports the paths a client can
+        # actually post to regardless of how FastAPI represents an included
+        # router internally.
+        paths = app.openapi()["paths"]
 
-        assert ("/api/remediations/{remediation_id}/approve", "POST") in paths
-        assert ("/api/remediations/{remediation_id}/reject", "POST") in paths
+        assert "/api/remediations/{remediation_id}/approve" in paths
+        assert "post" in paths["/api/remediations/{remediation_id}/approve"]
+
+        assert "/api/remediations/{remediation_id}/reject" in paths
+        assert "post" in paths["/api/remediations/{remediation_id}/reject"]
 
     def test_decision_routes_are_not_nested_under_incidents(self) -> None:
         """Guards against re-declaring them on the /api/incidents router."""
