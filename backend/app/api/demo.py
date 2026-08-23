@@ -95,7 +95,11 @@ async def create_demo_incident() -> dict:
         stack_traces=[stack_trace_content],
         created_at=now,
         updated_at=now,
-        raw_payload={"demo": True},
+        raw_payload={
+            "demo": True,
+            "log_path": "fixtures/logs/incident.log",
+            "repo_path": "fixtures/repos/demo-service",
+        },
     )
 
     evidence_items = [

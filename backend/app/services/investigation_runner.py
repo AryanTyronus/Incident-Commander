@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -17,6 +18,9 @@ from backend.app.repositories import (
     IncidentRepository,
     InvestigationRepository,
 )
+from backend.app.retrieval.chroma import ChromaRetrieval
+from backend.app.retrieval.embeddings import FakeEmbeddingProvider
+from backend.app.tools.runbook_search import RunbookSearch
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +66,22 @@ def build_commander(
     )
     evidence_repo = EvidenceRepository(db_path)
     finding_repo = FindingRepository(db_path)
+    repo_root = Path(db_path).resolve().parent.parent
+    runbook_dir = Path(settings.RUNBOOK_DIRECTORY)
+    if not runbook_dir.exists():
+        runbook_dir = repo_root / "fixtures" / "runbooks"
+    retrieval = ChromaRetrieval(
+        embedding_provider=FakeEmbeddingProvider(),
+        persist_directory=settings.CHROMA_PERSIST_DIRECTORY,
+    )
+    runbook_search = RunbookSearch(retrieval)
+    if retrieval.count() == 0 and runbook_dir.exists():
+        runbook_search.index_runbooks(runbook_dir)
 
     registry = AgentRegistry()
     registry.register(LogTriageAgent(evidence_repo, finding_repo))
     registry.register(GitForensicsAgent(evidence_repo, finding_repo))
-    registry.register(RunbookAgent(evidence_repo, finding_repo))
+    registry.register(RunbookAgent(evidence_repo, finding_repo, runbook_search))
 
     return IncidentCommander(
         llm=llm,

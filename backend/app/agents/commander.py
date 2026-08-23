@@ -277,6 +277,15 @@ class IncidentCommander:
         """Execute all tasks in the plan concurrently."""
         import asyncio
 
+        incident = self._repo.get_incident(plan.incident_id) or {}
+        extra_context = {
+            **(incident.get("raw_payload") or {}),
+        }
+        if incident.get("stack_traces"):
+            extra_context.setdefault("stack_trace", incident["stack_traces"][0])
+        if incident.get("service"):
+            extra_context.setdefault("service", incident["service"])
+
         async def run_task(task: InvestigationTask) -> None:
             agent = self._registry.get(task.agent_name)
             if agent is None:
@@ -286,9 +295,9 @@ class IncidentCommander:
 
             context = InvestigationContext(
                 incident_id=plan.incident_id,
-                incident={},
+                incident=incident,
                 state=state,
-                extra=task.input,
+                extra={**extra_context, **task.input},
             )
 
             self._record_event(

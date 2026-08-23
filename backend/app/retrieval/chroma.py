@@ -39,7 +39,6 @@ class ChromaRetrieval:
 
         try:
             import chromadb
-            from chromadb.config import Settings as ChromaSettings
         except ImportError:
             raise ImportError(
                 "chromadb is required for retrieval. Install with: pip install chromadb"
@@ -49,7 +48,6 @@ class ChromaRetrieval:
 
         self._client = chromadb.PersistentClient(
             path=self._persist_directory,
-            settings=ChromaSettings(anonymized_telemetry=False),
         )
 
         self._collection = self._client.get_or_create_collection(
